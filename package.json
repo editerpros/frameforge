@@ -1,6 +1,6 @@
 {
   "name": "frameforge-video-editor",
-  "version": "1.3.0",
+  "version": "1.6.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -41,5 +41,5 @@
       ]
     }
   },
-  "description": "Full timeline video editor for Windows and web with multi-layer FFmpeg rendering, mixed audio, titles, subtitles, effects and transitions."
+  "description": "Professional Windows and web video editor with multi-track FFmpeg rendering, speed ramps, masks, local Whisper subtitles and waveform visualization."
 }

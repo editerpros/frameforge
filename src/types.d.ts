@@ -17,6 +17,14 @@ declare global {
         brightness: number;
         contrast: number;
         saturation: number;
+        audioFadeIn?: number;
+        audioFadeOut?: number;
+        noiseReduction?: number;
+        eqLow?: number;
+        eqMid?: number;
+        eqHigh?: number;
+        compressor?: number;
+        audioPan?: number;
       }) => Promise<{ canceled?: boolean; filePath?: string; error?: string }>;
       exportTimeline?: (payload: {
         files: Array<{ name: string; data: Uint8Array | string }>;
@@ -26,6 +34,7 @@ declare global {
       }) => Promise<{ canceled?: boolean; filePath?: string; error?: string }>;
       probeMediaAudio?: (assets: Array<{ id: string; name: string; bytes: Uint8Array }>) => Promise<{ audioAssetIds?: string[]; error?: string }>;
       onRenderProgress?: (callback: (progress: number) => void) => (() => void);
+      transcribeMedia?: (payload: { bytes: Uint8Array; fileName: string; model: 'tiny' | 'base' | 'small'; language: string }) => Promise<{ srt?: string; error?: string }>;
       saveProject?: (content: string) => Promise<{ canceled?: boolean; filePath?: string; error?: string }>;
       openProject?: () => Promise<{ canceled?: boolean; content?: string; filePath?: string; error?: string }>;
     };

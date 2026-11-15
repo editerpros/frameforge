@@ -78,3 +78,56 @@
 .render-progress-wrap{display:flex;align-items:center;gap:10px;margin:13px 0 5px;color:#cfc1ef;font:10px 'DM Mono';}
 .render-progress-track{height:6px;flex:1;overflow:hidden;border-radius:10px;background:#302b3c;}
 .render-progress-fill{height:100%;border-radius:10px;background:var(--accent);transition:width .18s ease;}
+
+
+/* FrameForge v1.4: waveform, transform and keyframe controls */
+.waveform-bars{height:19px;width:100%;display:flex;align-items:center;gap:1px;overflow:hidden;opacity:.88}
+.waveform-bars i{display:block;flex:1;min-width:1px;border-radius:2px;background:linear-gradient(180deg,#b9ffe8,#56b99f);opacity:.9}
+.keyframe-property{margin:14px 0}
+.keyframe-control{display:flex;align-items:center;gap:7px}
+.keyframe-control input[type=range]{flex:1;min-width:0}
+.keyframe-btn{width:25px;height:23px;flex:none;display:grid;place-items:center;border:1px solid #403b50;border-radius:5px;background:#1a1922;color:#817b91}
+.keyframe-btn:hover,.keyframe-btn.active{border-color:#ab8bfa;background:#302442;color:#d7c4ff}
+.keyframe-list{display:flex;flex-direction:column;gap:5px;margin-top:12px}
+.keyframe-row{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 7px;border:1px solid #302d3a;border-radius:5px;background:#191820;color:#bdb6cb;font-size:8px}
+.keyframe-row span{display:flex;align-items:center;gap:5px;min-width:0;text-transform:capitalize}
+.keyframe-row span svg{color:#c5a6ff;flex:none}
+.keyframe-row select{max-width:90px;padding:4px;border:1px solid #3a3747;border-radius:4px;background:#111116;color:#cfc8df;font-size:8px}
+
+/* FrameForge v1.4.5 — Resolve-inspired startup and project manager */
+.splash-screen{position:fixed;inset:0;z-index:1000;display:flex;flex-direction:column;align-items:center;justify-content:center;overflow:hidden;background:radial-gradient(ellipse at 50% 42%,#29213b 0%,#17151f 38%,#101015 78%);color:#f3effb;animation:splashFadeIn .45s ease both}
+.splash-glow{position:absolute;width:420px;height:420px;border-radius:50%;filter:blur(100px);opacity:.13;pointer-events:none}.splash-glow-one{top:-260px;left:calc(50% - 210px);background:#9b75ff}.splash-glow-two{bottom:-340px;right:-100px;background:#4b91a4}
+.splash-brand-mark{width:82px;height:82px;display:grid;place-items:center;border:1px solid #8f79bb55;border-radius:24px;background:linear-gradient(145deg,#302640,#1b1925);color:#c5a8ff;box-shadow:0 15px 60px #0008,0 0 55px #a78bfa18;animation:splashMarkIn .8s cubic-bezier(.2,.8,.2,1) both}
+.splash-wordmark{margin-top:24px;font-size:27px;font-weight:800;letter-spacing:.19em}.splash-wordmark span{color:#b69aff}.splash-tagline{margin-top:9px;color:#817b91;font:9px 'DM Mono',monospace;letter-spacing:.34em}
+.splash-loader{width:154px;height:2px;margin-top:42px;overflow:hidden;background:#393244}.splash-loader i{display:block;width:42%;height:100%;background:linear-gradient(90deg,#8064bd,#d1baff);animation:splashLoad 1.25s ease-in-out infinite}
+.splash-version{position:absolute;bottom:35px;color:#696575;font:8px 'DM Mono',monospace;letter-spacing:.18em}
+@keyframes splashFadeIn{from{opacity:0}to{opacity:1}}@keyframes splashMarkIn{from{opacity:0;transform:translateY(12px) scale(.94)}to{opacity:1;transform:translateY(0) scale(1)}}@keyframes splashLoad{from{transform:translateX(-110%)}to{transform:translateX(350%)}}
+.home-screen{position:fixed;inset:0;display:flex;flex-direction:column;overflow:auto;background:radial-gradient(ellipse at 78% 16%,#2a203b55,transparent 34%),#111116;color:#eeeaf5;font-family:'DM Sans',sans-serif}
+.home-topbar{height:66px;flex:none;display:flex;align-items:center;justify-content:space-between;padding:0 34px;border-bottom:1px solid #292633;background:#15141b}.home-topbar .brand{font-size:12px}.home-top-right{display:flex;align-items:center;gap:22px}.home-edition{color:#797485;font:8px 'DM Mono',monospace;letter-spacing:.2em}.home-settings{padding:7px 11px;border:1px solid #373341;border-radius:5px;background:#1d1b25;color:#aaa4b8;font-size:9px}.home-content{width:min(1050px,calc(100% - 64px));margin:0 auto;display:grid;grid-template-columns:minmax(310px,.92fr) minmax(340px,1.08fr);gap:clamp(42px,8vw,110px);align-items:start;padding:clamp(65px,12vh,125px) 0 70px}.home-welcome{padding-top:12px}.home-eyebrow{display:flex;align-items:center;gap:9px;color:#928ba0;font:8px 'DM Mono',monospace;letter-spacing:.2em}.home-eyebrow>span{width:6px;height:6px;border-radius:50%;background:#b49aff;box-shadow:0 0 12px #b49aff}.home-welcome h1{margin:25px 0 14px;font-size:clamp(42px,5vw,64px);line-height:1.03;font-weight:600;letter-spacing:-.055em}.home-welcome h1 em{color:#b49aff;font-style:normal}.home-welcome>p{margin:0;color:#8e8999;font-size:12px;line-height:1.7}.home-actions{display:flex;flex-direction:column;gap:10px;margin-top:37px}.home-primary,.home-secondary{width:100%;min-height:65px;display:flex;align-items:center;gap:14px;padding:12px 15px;border-radius:8px;text-align:left;transition:.18s ease}.home-primary{border:1px solid #a78bfa;background:linear-gradient(105deg,#6f55a4,#57417f);color:white;box-shadow:0 9px 30px #7259a322}.home-primary:hover{transform:translateY(-2px);filter:brightness(1.12)}.home-secondary{border:1px solid #3a3546;background:#1b1923;color:#c6bfd3}.home-secondary:hover{border-color:#8972b4;background:#211e2c}.home-primary>span:nth-child(2),.home-secondary>span:nth-child(2){display:flex;flex-direction:column;gap:4px}.home-primary b,.home-secondary b{font-size:11px}.home-primary small,.home-secondary small{color:#d0c5e5;font-size:9px}.home-secondary small{color:#858091}.home-shortcut{margin-left:auto;padding:4px 6px;border:1px solid #ffffff40;border-radius:4px;color:#e7ddfa;font:7px 'DM Mono',monospace;letter-spacing:.1em}.home-projects{padding-top:8px}.home-section-heading{display:flex;align-items:end;justify-content:space-between;margin-bottom:16px}.home-section-heading h2{margin:7px 0 0;font-size:19px;font-weight:600;letter-spacing:-.025em}.home-project-count{padding-bottom:3px;color:#746e80;font:8px 'DM Mono',monospace;letter-spacing:.1em}.recent-project-list{display:flex;flex-direction:column;gap:7px}.recent-project{width:100%;min-height:69px;display:flex;align-items:center;gap:12px;padding:9px;border:1px solid #302c3a;border-radius:7px;background:#191820;color:#e5e0ed;text-align:left;transition:.16s}.recent-project:hover{border-color:#76619d;background:#211e2a}.recent-project-thumb{position:relative;width:48px;height:46px;flex:none;display:grid;place-items:center;border:1px solid #504264;border-radius:5px;background:linear-gradient(145deg,#392e4d,#1d2029);color:#bfa8ef}.recent-project-thumb i{position:absolute;right:4px;bottom:3px;color:#8e829f;font:7px 'DM Mono';font-style:normal}.recent-project-info{min-width:0;display:flex;flex:1;flex-direction:column;gap:5px}.recent-project-info b{overflow:hidden;color:#e4dfea;font-size:10px;text-overflow:ellipsis;white-space:nowrap}.recent-project-info small{color:#837e8d;font-size:8px}.recent-project-open{display:flex;align-items:center;gap:5px;color:#9b8ab8;font:7px 'DM Mono';letter-spacing:.1em}.recent-project-open svg{transform:rotate(-90deg)}.home-empty{min-height:180px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px;border:1px dashed #393443;border-radius:8px;background:#17161e;text-align:center}.home-empty-icon{width:45px;height:45px;display:grid;place-items:center;border-radius:12px;background:#282235;color:#b49aff}.home-empty b{margin-top:3px;color:#c9c3d1;font-size:10px}.home-empty>span{max-width:235px;color:#777282;font-size:8px;line-height:1.6}.home-footer{margin-top:auto;min-height:43px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:0 34px;border-top:1px solid #292633;color:#6e6979;font:7px 'DM Mono',monospace;letter-spacing:.13em}.home-toast{position:fixed;right:20px;bottom:55px;max-width:min(420px,calc(100vw - 40px));padding:10px 13px;border:1px solid #504368;border-radius:6px;background:#211d2b;color:#d7c9ef;font-size:9px;box-shadow:0 8px 30px #0008}.home-return-btn{margin-right:2px}
+@media(max-width:760px){.home-content{grid-template-columns:1fr;width:min(520px,calc(100% - 36px));gap:46px;padding:55px 0}.home-welcome h1{font-size:48px}.home-topbar{padding:0 18px}.home-footer{padding:0 18px;font-size:6px}.home-edition{display:none}.home-return-btn{display:none}}
+
+
+/* FrameForge v1.5 — Audio Studio & compositing controls */
+.audio-tool-card{gap:10px}
+.tool-pane .range-property{margin:12px 13px}
+.tool-pane .media-heading{margin-top:18px}
+.check-property input:disabled{opacity:.45}
+.inspector-section .tool-note{margin:10px 0 3px}
+.inspector-section .check-property{padding:7px 8px;border:1px solid #34303f;border-radius:5px;background:#1a1922}
+
+
+/* FrameForge v1.6 — AI Studio, speed ramps, masking and audio visualizer */
+.ai-studio-pane{padding-bottom:30px}
+.ai-field{display:flex;flex-direction:column;gap:6px;margin:10px 12px;color:#9c96a8;font-size:9px}
+.ai-field select{width:100%;padding:8px 9px;border:1px solid #3d394b;border-radius:5px;background:#14131a;color:#e4deef;font-size:9px;outline:none}
+.ai-field select:focus{border-color:#a78bfa}
+.ai-color-row{display:flex;align-items:center;justify-content:space-between;margin:10px 12px}
+.ai-color-row input[type=color]{width:42px;height:25px;padding:2px;border:1px solid #454052;border-radius:5px;background:#1a1822}
+.ai-action{margin:5px 12px;width:calc(100% - 24px);justify-content:center;border-color:#69538e;background:#292137;color:#dfd0ff}
+.ai-action:disabled{opacity:.48;cursor:not-allowed}
+.ai-studio-pane .tool-note{margin:10px 12px;padding:9px 10px;border:1px solid #302d3a;border-radius:5px;background:#191820;color:#858091;font-size:8px;line-height:1.6}
+.speed-preset-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;margin:9px 0 12px}
+.speed-preset-grid button{min-height:29px;border:1px solid #3c3749;border-radius:5px;background:#1c1a24;color:#c8c1d3;font-size:8px}
+.speed-preset-grid button:hover{border-color:#a78bfa;background:#292238;color:#e5d9ff}
+.video-frame.sampling-color{cursor:crosshair;outline:2px dashed #b99aff;outline-offset:-5px}
+.video-frame.sampling-color::after{content:'CLICK THE SUBJECT TO SAMPLE ITS COLOUR';position:absolute;left:50%;top:12px;z-index:20;transform:translateX(-50%);padding:6px 9px;border:1px solid #8b70bf;border-radius:4px;background:#211a2ddd;color:#e5d8ff;font:8px 'DM Mono',monospace;letter-spacing:.08em;pointer-events:none;white-space:nowrap}

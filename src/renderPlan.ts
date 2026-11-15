@@ -1,15 +1,25 @@
+import { buildKeyframeExpression } from './animation';
+import type { AnimatedProperty, ClipKeyframe } from './animation';
+import { getRampedDuration, normalizeSpeedSegments } from './speedRamp';
+import type { SpeedSegment } from './speedRamp';
+
 export type RenderMediaKind = 'video' | 'audio';
 export type RenderAsset = { id: string; name: string; kind: RenderMediaKind; file: File };
 export type RenderTrack = { id: string; kind: RenderMediaKind; name: string; muted: boolean; hidden: boolean; locked: boolean };
 export type RenderClip = {
   id: string; assetId: string; trackId: string; position: number; sourceStart: number; sourceEnd: number;
-  playbackRate?: number; volume?: number; filter?: string; brightness?: number; contrast?: number; saturation?: number;
+  playbackRate?: number; speedSegments?: SpeedSegment[]; maskShape?: 'none' | 'ellipse' | 'rectangle'; maskWidth?: number; maskHeight?: number; maskFeather?: number; volume?: number; audioFadeIn?: number; audioFadeOut?: number; noiseReduction?: number; eqLow?: number; eqMid?: number; eqHigh?: number; compressor?: number; audioPan?: number; blendMode?: 'normal' | 'screen' | 'multiply' | 'overlay' | 'addition' | 'darken' | 'lighten' | 'softlight'; blendOpacity?: number; chromaKeyEnabled?: boolean; chromaKeyColor?: string; chromaKeySimilarity?: number; chromaKeyBlend?: number; filter?: string; brightness?: number; contrast?: number; saturation?: number;
   transitionIn?: string; transitionOut?: string; transitionDuration?: number;
+  scale?: number; rotation?: number; positionX?: number; positionY?: number; opacity?: number;
+  cropTop?: number; cropRight?: number; cropBottom?: number; cropLeft?: number;
+  temperature?: number; tint?: number; highlights?: number; shadows?: number; vibrance?: number;
+  keyframes?: ClipKeyframe[];
 };
 export type RenderOverlay = {
   id: string; kind: 'title' | 'subtitle'; text: string; start: number; duration: number; x: number; y: number;
   fontSize: number; color: string; background: string; bold: boolean; align: 'left' | 'center' | 'right';
 };
+export type RenderAudioVisualizer = { enabled: boolean; assetId: string; mode: 'line' | 'point' | 'p2p'; color: string; width: number; height: number; y: number };
 export type RenderOptions = {
   width: number; height: number; fps: number; quality: 'draft' | 'balanced' | 'high';
   fontFiles?: { regular: string; bold: string; malayalamRegular?: string; malayalamBold?: string; };
@@ -22,6 +32,7 @@ export type RenderPlan = {
   videoClipCount: number;
   audioClipCount: number;
   overlayCount: number;
+  visualizerCount: number;
 };
 
 const presetFilter: Record<string, string> = {
@@ -39,6 +50,17 @@ const n = (value: number) => {
   if (!Number.isFinite(value)) return '0';
   return Number(value.toFixed(4)).toString();
 };
+
+// FFmpeg atempo accepts factors from 0.5 to 2.0 per filter. Chain filters to
+// support the editor's full combined speed range (0.0625x–16x) predictably.
+const atempoFilters = (value: number) => {
+  let factor = Math.max(0.0625, Math.min(16, Number.isFinite(value) ? value : 1));
+  const filters: string[] = [];
+  while (factor < 0.5 - 1e-8) { filters.push('atempo=0.5'); factor /= 0.5; }
+  while (factor > 2 + 1e-8) { filters.push('atempo=2'); factor /= 2; }
+  filters.push(`atempo=${n(factor)}`);
+  return filters;
+};
 const safeExtension = (name: string, kind: RenderMediaKind) => {
   const match = name.toLowerCase().match(/\.([a-z0-9]{1,8})$/);
   return match?.[1] ?? (kind === 'audio' ? 'm4a' : 'mp4');
@@ -54,16 +76,20 @@ const ffColor = (value: string, fallback: string) => {
   }
   return fallback;
 };
-const transitionAlpha = (clip: RenderClip, length: number) => {
+const transitionAlpha = (clip: RenderClip, length: number, opacityExpression = '100') => {
   const duration = Math.min(Math.max(0.05, clip.transitionDuration ?? 0.6), Math.max(0.05, length / 2));
   const parts: string[] = [];
   if (clip.transitionIn === 'fade') parts.push(`min(1,max(0,T/${n(duration)}))`);
   if (clip.transitionOut === 'fade') parts.push(`min(1,max(0,(${n(length)}-T)/${n(duration)}))`);
   if (clip.transitionIn === 'wipe') parts.push(`if(lt(X,W*min(1,max(0,T/${n(duration)}))),1,0)`);
   if (clip.transitionOut === 'wipe') parts.push(`if(lt(X,W*(1-min(1,max(0,T-${n(Math.max(0, length - duration))})/${n(duration)}))),1,0)`);
+  if (opacityExpression !== '100') parts.push(`(${opacityExpression.replace(/\bt\b/g, 'T')})/100`);
   if (!parts.length) return '';
   return `geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='255*${parts.join('*')}'`;
 };
+
+const animated = (clip: RenderClip, property: AnimatedProperty, fallback: number) => buildKeyframeExpression(clip.keyframes, property, fallback);
+const boundedCrop = (value: number | undefined) => Math.max(0, Math.min(40, value ?? 0)) / 100;
 
 export function buildRenderPlan(input: {
   assets: RenderAsset[];
@@ -71,16 +97,17 @@ export function buildRenderPlan(input: {
   clips: RenderClip[];
   overlays: RenderOverlay[];
   audioAssetIds: Set<string>;
+  visualizer?: RenderAudioVisualizer;
   options: RenderOptions;
 }): RenderPlan {
-  const { assets, tracks, clips, overlays, audioAssetIds, options } = input;
+  const { assets, tracks, clips, overlays, audioAssetIds, visualizer, options } = input;
   const assetById = new Map(assets.map((asset) => [asset.id, asset]));
   const trackById = new Map(tracks.map((track) => [track.id, track]));
   const eligible = clips.map((clip) => ({ clip, asset: assetById.get(clip.assetId), track: trackById.get(clip.trackId) }))
     .filter((item): item is { clip: RenderClip; asset: RenderAsset; track: RenderTrack } => Boolean(item.asset && item.track))
     .filter(({ asset, track }) => asset.kind === track.kind && !(track.kind === 'video' ? track.hidden : track.muted));
 
-  const maxClipEnd = eligible.reduce((end, { clip }) => Math.max(end, clip.position + Math.max(0, (clip.sourceEnd - clip.sourceStart) / Math.max(0.25, clip.playbackRate ?? 1))), 0);
+  const maxClipEnd = eligible.reduce((end, { clip }) => Math.max(end, clip.position + getRampedDuration(Math.max(0, clip.sourceEnd - clip.sourceStart), clip.playbackRate ?? 1, clip.speedSegments)), 0);
   const maxOverlayEnd = overlays.reduce((end, overlay) => Math.max(end, overlay.start + overlay.duration), 0);
   const duration = Math.max(maxClipEnd, maxOverlayEnd);
   if (!Number.isFinite(duration) || duration <= 0) throw new Error('Add at least one clip or timed text overlay before exporting.');
@@ -119,21 +146,66 @@ export function buildRenderPlan(input: {
   videoItems.forEach(({ clip, track }, index) => {
     const i = inputIndex.get(clip.id)!;
     const rate = Math.max(0.25, Math.min(4, clip.playbackRate ?? 1));
-    const length = Math.max(0.05, (clip.sourceEnd - clip.sourceStart) / rate);
+    const length = Math.max(0.05, getRampedDuration(clip.sourceEnd - clip.sourceStart, rate, clip.speedSegments));
     const start = Math.max(0, clip.position);
     const end = start + length;
-    const filters: string[] = [
-      `setpts=(PTS-STARTPTS)/${n(rate)}`,
+    const cropTop = boundedCrop(clip.cropTop);
+    const cropRight = boundedCrop(clip.cropRight);
+    const cropBottom = boundedCrop(clip.cropBottom);
+    const cropLeft = boundedCrop(clip.cropLeft);
+    const speedSegments = normalizeSpeedSegments(clip.speedSegments);
+    let videoInputLabel = `${i}:v`;
+    const filters: string[] = [];
+    if (speedSegments.length > 1) {
+      const sourceLabels = speedSegments.map((_, part) => `vsrc${index}_${part}`);
+      graph.push(`[${i}:v]split=${sourceLabels.length}${sourceLabels.map((label) => `[${label}]`).join('')}`);
+      const segmentLabels: string[] = [];
+      speedSegments.forEach((segment, part) => {
+        const label = `vramp${index}_${part}`;
+        const sourceStart = (clip.sourceEnd - clip.sourceStart) * segment.start / 100;
+        const sourceEnd = (clip.sourceEnd - clip.sourceStart) * segment.end / 100;
+        graph.push(`[${sourceLabels[part]}]trim=start=${n(sourceStart)}:end=${n(sourceEnd)},setpts=(PTS-STARTPTS)/${n(rate * segment.rate)}[${label}]`);
+        segmentLabels.push(`[${label}]`);
+      });
+      videoInputLabel = `vramped${index}`;
+      graph.push(`${segmentLabels.join('')}concat=n=${segmentLabels.length}:v=1:a=0[${videoInputLabel}]`);
+    } else {
+      filters.push(`setpts=(PTS-STARTPTS)/${n(rate * (speedSegments[0]?.rate ?? 1))}`);
+    }
+    if (cropTop + cropBottom <= 0.8 && cropLeft + cropRight <= 0.8 && cropTop + cropRight + cropBottom + cropLeft > 0) {
+      filters.push(`crop=w=iw*${n(1 - cropLeft - cropRight)}:h=ih*${n(1 - cropTop - cropBottom)}:x=iw*${n(cropLeft)}:y=ih*${n(cropTop)}`);
+    }
+    if (clip.chromaKeyEnabled) {
+      const keyHex = /^#[0-9a-f]{6}$/i.test(clip.chromaKeyColor ?? '') ? `0x${(clip.chromaKeyColor ?? '#00ff00').slice(1)}` : '0x00FF00';
+      const similarity = Math.max(0.01, Math.min(1, (clip.chromaKeySimilarity ?? 18) / 100));
+      const edgeBlend = Math.max(0, Math.min(1, (clip.chromaKeyBlend ?? 8) / 100));
+      filters.push('format=yuv444p', `chromakey=${keyHex}:${n(similarity)}:${n(edgeBlend)}`, 'format=rgba');
+    }
+    filters.push(
       `scale=${width}:${height}:force_original_aspect_ratio=decrease`,
-      `pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:color=black`,
+      'format=rgba',
+      `pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:color=black@0`,
       'setsar=1',
-    ];
+    );
     const preset = presetFilter[clip.filter ?? 'none'];
     if (preset) filters.push(preset);
     const brightness = Math.max(-50, Math.min(50, clip.brightness ?? 0)) / 100;
     const contrast = Math.max(50, Math.min(150, clip.contrast ?? 100)) / 100;
+    const vibrance = Math.max(-100, Math.min(100, clip.vibrance ?? 0)) / 100;
     const saturation = Math.max(0, Math.min(200, clip.saturation ?? 100)) / 100;
-    if (brightness !== 0 || contrast !== 1 || saturation !== 1) filters.push(`eq=brightness=${n(brightness)}:contrast=${n(contrast)}:saturation=${n(saturation)}`);
+    const effectiveSaturation = Math.max(0, Math.min(2.5, saturation * (1 + vibrance * 0.5)));
+    if (brightness !== 0 || contrast !== 1 || effectiveSaturation !== 1) filters.push(`eq=brightness=${n(brightness)}:contrast=${n(contrast)}:saturation=${n(effectiveSaturation)}`);
+    const temperature = Math.max(-100, Math.min(100, clip.temperature ?? 0)) / 100;
+    const tint = Math.max(-100, Math.min(100, clip.tint ?? 0)) / 100;
+    const highlights = Math.max(-100, Math.min(100, clip.highlights ?? 0)) / 100;
+    const shadows = Math.max(-100, Math.min(100, clip.shadows ?? 0)) / 100;
+    if (temperature || tint || highlights || shadows) {
+      filters.push(`colorbalance=rs=${n(temperature * 0.18 + shadows * 0.08)}:gs=${n(-tint * 0.12)}:bs=${n(-temperature * 0.18)}:rh=${n(temperature * 0.18 + highlights * 0.1)}:gh=${n(-tint * 0.12)}:bh=${n(-temperature * 0.18 - highlights * 0.1)}`);
+    }
+    const scaleExpression = animated(clip, 'scale', clip.scale ?? 100);
+    const rotationExpression = animated(clip, 'rotation', clip.rotation ?? 0);
+    if (scaleExpression !== '100') filters.push(`scale=w='iw*(${scaleExpression})/100':h='ih*(${scaleExpression})/100':eval=frame`);
+    if (rotationExpression !== '0') filters.push(`rotate=angle='(${rotationExpression})*PI/180':ow='rotw(iw)':oh='roth(ih)':c=none`);
 
     const transitionDuration = Math.min(Math.max(0.05, clip.transitionDuration ?? 0.6), Math.max(0.05, length / 2));
     filters.push(`fps=${fps}`, 'format=rgba');
@@ -152,15 +224,95 @@ export function buildRenderPlan(input: {
       }
       filters.push(`zoompan=z='${zoomExpr}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=${width}x${height}:fps=${fps}`, 'format=rgba');
     }
-    const alphaFilter = transitionAlpha(clip, length);
+    if ((clip.maskShape ?? 'none') !== 'none') {
+      const maskWidth = Math.max(5, Math.min(100, clip.maskWidth ?? 82)) / 100;
+      const maskHeight = Math.max(5, Math.min(100, clip.maskHeight ?? 82)) / 100;
+      const feather = Math.max(0, Math.min(30, clip.maskFeather ?? 0)) / 100;
+      const dx = `abs(X-W/2)/(W*${n(maskWidth / 2)})`;
+      const dy = `abs(Y-H/2)/(H*${n(maskHeight / 2)})`;
+      const distance = clip.maskShape === 'ellipse' ? `sqrt(pow(${dx},2)+pow(${dy},2))` : `max(${dx},${dy})`;
+      const alpha = feather > 0
+        ? `if(lt(${distance},${n(1 - feather)}),255,if(lt(${distance},${n(1 + feather)}),255*(${n(1 + feather)}-${distance})/${n(2 * feather)},0))`
+        : `if(lt(${distance},1),255,0)`;
+      filters.push(`format=rgba`, `geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='alpha(X,Y)*(${alpha})'`);
+    }
+    const opacityExpression = animated(clip, 'opacity', clip.opacity ?? 100);
+    const alphaFilter = transitionAlpha(clip, length, opacityExpression);
     if (alphaFilter) filters.push(alphaFilter);
     filters.push(`setpts=PTS+${n(start)}/TB`);
     const clipLabel = `vclip${index}`;
-    graph.push(`[${i}:v]${filters.join(',')}[${clipLabel}]`);
+    graph.push(`[${videoInputLabel}]${filters.join(',')}[${clipLabel}]`);
     const nextLabel = `vmix${index}`;
-    graph.push(`[${currentVideo}][${clipLabel}]overlay=x=0:y=0:eof_action=pass:shortest=0:repeatlast=0:enable='between(t,${n(start)},${n(end)})'[${nextLabel}]`);
+    const xExpression = animated(clip, 'positionX', clip.positionX ?? 0).replace(/\bt\b/g, `(t-${n(start)})`);
+    const yExpression = animated(clip, 'positionY', clip.positionY ?? 0).replace(/\bt\b/g, `(t-${n(start)})`);
+    const overlayX = `(W-w)/2+W*(${xExpression})/100`;
+    const overlayY = `(H-h)/2+H*(${yExpression})/100`;
+    const blendMode = clip.chromaKeyEnabled ? 'normal' : (clip.blendMode ?? 'normal');
+    const canUseBlendFilter = xExpression === '0'
+      && yExpression === '0'
+      && scaleExpression === '100'
+      && rotationExpression === '0'
+      && !(clip.cropTop || clip.cropRight || clip.cropBottom || clip.cropLeft)
+      && opacityExpression === '100'
+      && (clip.transitionIn ?? 'none') === 'none'
+      && (clip.transitionOut ?? 'none') === 'none';
+    if (blendMode !== 'normal' && canUseBlendFilter) {
+      const blendOpacity = Math.max(0, Math.min(1, (clip.blendOpacity ?? 100) / 100));
+      graph.push(`[${clipLabel}][${currentVideo}]blend=all_mode=${blendMode}:all_opacity=${n(blendOpacity)}:eof_action=pass:shortest=0:enable='between(t,${n(start)},${n(end)})'[${nextLabel}]`);
+    } else {
+      graph.push(`[${currentVideo}][${clipLabel}]overlay=x='${overlayX}':y='${overlayY}':eval=frame:eof_action=pass:shortest=0:repeatlast=0:enable='between(t,${n(start)},${n(end)})'[${nextLabel}]`);
+    }
     currentVideo = nextLabel;
   });
+
+  const audioItems = eligible.filter(({ asset, track }) => (track.kind === 'audio' && asset.kind === 'audio') || (track.kind === 'video' && asset.kind === 'video' && audioAssetIds.has(asset.id)));
+  let visualizerCount = 0;
+  const audioSourceOverrides = new Map<string, string>();
+  if (visualizer?.enabled) {
+    const visualizerItem = audioItems.find(({ asset }) => !visualizer.assetId || asset.id === visualizer.assetId);
+    if (visualizerItem) {
+      const clip = visualizerItem.clip;
+      const rate = Math.max(0.25, Math.min(4, clip.playbackRate ?? 1));
+      const input = inputIndex.get(clip.id);
+      if (input !== undefined) {
+        const start = Math.max(0, clip.position);
+        const length = getRampedDuration(clip.sourceEnd - clip.sourceStart, clip.playbackRate ?? 1, clip.speedSegments);
+        const end = start + length;
+        const width = Math.max(160, Math.min(options.width, Math.round(visualizer.width || 1200)));
+        const height = Math.max(40, Math.min(600, Math.round(visualizer.height || 180)));
+        const color = /^#[0-9a-f]{6}$/i.test(visualizer.color) ? `0x${visualizer.color.slice(1)}` : '0xB99AFF';
+        const mode = visualizer.mode === 'point' || visualizer.mode === 'p2p' ? visualizer.mode : 'line';
+        const waveLabel = 'audioVisualizer';
+        graph.push(`[${input}:a]asplit=2[visualizerAudio][timelineAudio${input}]`);
+        audioSourceOverrides.set(clip.id, `timelineAudio${input}`);
+        const rampSegments = normalizeSpeedSegments(clip.speedSegments);
+        let waveformAudio = 'visualizerAudio';
+        if (rampSegments.length > 1) {
+          const splitLabels = rampSegments.map((_, part) => `visualizerRampSrc${part}`);
+          graph.push(`[visualizerAudio]asplit=${splitLabels.length}${splitLabels.map((label) => `[${label}]`).join('')}`);
+          const retimedLabels: string[] = [];
+          rampSegments.forEach((segment, part) => {
+            const sourceStart = (clip.sourceEnd - clip.sourceStart) * segment.start / 100;
+            const sourceEnd = (clip.sourceEnd - clip.sourceStart) * segment.end / 100;
+            const label = `visualizerRamp${part}`;
+            graph.push(`[${splitLabels[part]}]atrim=start=${n(sourceStart)}:end=${n(sourceEnd)},asetpts=PTS-STARTPTS,${atempoFilters(rate * segment.rate).join(',')}[${label}]`);
+            retimedLabels.push(`[${label}]`);
+          });
+          waveformAudio = 'visualizerRetimed';
+          graph.push(`${retimedLabels.join('')}concat=n=${retimedLabels.length}:v=0:a=1[${waveformAudio}]`);
+        } else {
+          graph.push(`[visualizerAudio]asetpts=PTS-STARTPTS,${atempoFilters(rate * (rampSegments[0]?.rate ?? 1)).join(',')}[visualizerRetimed]`);
+          waveformAudio = 'visualizerRetimed';
+        }
+        graph.push(`[${waveformAudio}]aformat=sample_rates=48000:channel_layouts=stereo,showwaves=s=${width}x${height}:mode=${mode}:rate=${fps}:colors=${color}:draw=full,format=rgba,colorkey=0x000000:0.12:0.04,setpts=PTS+${n(start)}/TB[${waveLabel}]`);
+        const nextLabel = 'vmixvisualizer';
+        const y = Math.max(0, Math.min(100, visualizer.y ?? 78)) / 100;
+        graph.push(`[${currentVideo}][${waveLabel}]overlay=x='(W-w)/2':y='H*${n(y)}':eval=frame:eof_action=pass:shortest=0:enable='between(t,${n(start)},${n(end)})'[${nextLabel}]`);
+        currentVideo = nextLabel;
+        visualizerCount = 1;
+      }
+    }
+  }
 
   overlays.filter((overlay) => overlay.text.trim() && overlay.duration > 0)
     .sort((a, b) => a.start - b.start)
@@ -184,7 +336,6 @@ export function buildRenderPlan(input: {
     });
   graph.push(`[${currentVideo}]format=yuv420p[vout]`);
 
-  const audioItems = eligible.filter(({ asset, track }) => track.kind === 'audio' && asset.kind === 'audio' || track.kind === 'video' && asset.kind === 'video' && audioAssetIds.has(asset.id));
   const audioLabels: string[] = [];
   audioItems.forEach(({ clip }, index) => {
     const i = inputIndex.get(clip.id);
@@ -192,8 +343,51 @@ export function buildRenderPlan(input: {
     const rate = Math.max(0.25, Math.min(4, clip.playbackRate ?? 1));
     const volume = Math.max(0, Math.min(2, clip.volume ?? 1));
     const delay = Math.max(0, Math.round(clip.position * 1000));
+    const clipDuration = getRampedDuration(clip.sourceEnd - clip.sourceStart, rate, clip.speedSegments);
+    const speedSegments = normalizeSpeedSegments(clip.speedSegments);
+    let audioInputLabel = audioSourceOverrides.get(clip.id) ?? `${i}:a`;
+    const filters: string[] = ['aformat=sample_rates=48000:channel_layouts=stereo', 'asetpts=PTS-STARTPTS'];
+    if (speedSegments.length > 1) {
+      const sourceLabels = speedSegments.map((_, part) => `asrc${index}_${part}`);
+      graph.push(`[${audioInputLabel}]asplit=${sourceLabels.length}${sourceLabels.map((label) => `[${label}]`).join('')}`);
+      const segmentLabels: string[] = [];
+      speedSegments.forEach((segment, part) => {
+        const label = `aramp${index}_${part}`;
+        const sourceStart = (clip.sourceEnd - clip.sourceStart) * segment.start / 100;
+        const sourceEnd = (clip.sourceEnd - clip.sourceStart) * segment.end / 100;
+        graph.push(`[${sourceLabels[part]}]atrim=start=${n(sourceStart)}:end=${n(sourceEnd)},asetpts=PTS-STARTPTS,${atempoFilters(rate * segment.rate).join(',')}[${label}]`);
+        segmentLabels.push(`[${label}]`);
+      });
+      audioInputLabel = `aramped${index}`;
+      graph.push(`${segmentLabels.join('')}concat=n=${segmentLabels.length}:v=0:a=1[${audioInputLabel}]`);
+      filters.splice(1, 1);
+    } else {
+      filters.push(...atempoFilters(rate * (speedSegments[0]?.rate ?? 1)));
+    }
+    const noiseReduction = Math.max(0, Math.min(100, clip.noiseReduction ?? 0));
+    if (noiseReduction > 0) filters.push(`afftdn=nr=${n(Math.max(0.1, noiseReduction * 0.24))}:nf=-35`);
+    const eqLow = Math.max(-12, Math.min(12, clip.eqLow ?? 0));
+    const eqMid = Math.max(-12, Math.min(12, clip.eqMid ?? 0));
+    const eqHigh = Math.max(-12, Math.min(12, clip.eqHigh ?? 0));
+    if (eqLow) filters.push(`equalizer=f=100:t=q:w=1:g=${n(eqLow)}`);
+    if (eqMid) filters.push(`equalizer=f=1000:t=q:w=1:g=${n(eqMid)}`);
+    if (eqHigh) filters.push(`equalizer=f=8000:t=q:w=1:g=${n(eqHigh)}`);
+    const compressor = Math.max(0, Math.min(100, clip.compressor ?? 0));
+    if (compressor > 0) filters.push(`acompressor=threshold=-24dB:ratio=${n(1 + compressor * 0.05)}:attack=20:release=250:makeup=1.5`);
+    filters.push(`volume=${n(volume)}`);
+    const pan = Math.max(-100, Math.min(100, clip.audioPan ?? 0)) / 100;
+    if (pan) {
+      const leftGain = pan > 0 ? 1 - pan : 1;
+      const rightGain = pan < 0 ? 1 + pan : 1;
+      filters.push(`pan=stereo\\|c0=${n(leftGain)}*c0\\|c1=${n(rightGain)}*c1`);
+    }
+    const fadeIn = Math.max(0, Math.min(clipDuration, clip.audioFadeIn ?? 0));
+    const fadeOut = Math.max(0, Math.min(clipDuration, clip.audioFadeOut ?? 0));
+    if (fadeIn > 0) filters.push(`afade=t=in:st=0:d=${n(fadeIn)}`);
+    if (fadeOut > 0) filters.push(`afade=t=out:st=${n(Math.max(0, clipDuration - fadeOut))}:d=${n(fadeOut)}`);
+    filters.push(`adelay=${delay}:all=1`, `apad=pad_dur=${n(duration)}`, `atrim=duration=${n(duration)}`);
     const label = `aclip${index}`;
-    const chain = `[${i}:a]aformat=sample_rates=48000:channel_layouts=stereo,asetpts=PTS-STARTPTS,atempo=${n(rate)},volume=${n(volume)},adelay=${delay}:all=1,apad=pad_dur=${n(duration)},atrim=duration=${n(duration)}[${label}]`;
+    const chain = `[${audioInputLabel}]${filters.join(',')}[${label}]`;
     graph.push(chain);
     audioLabels.push(`[${label}]`);
   });
@@ -226,5 +420,6 @@ export function buildRenderPlan(input: {
     videoClipCount: videoItems.length,
     audioClipCount: audioItems.length,
     overlayCount: textFiles.length,
+    visualizerCount,
   };
 }

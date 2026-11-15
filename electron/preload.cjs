@@ -6,6 +6,7 @@ contextBridge.exposeInMainWorld('frameforge', {
   getRenderFonts: () => ipcRenderer.invoke('get-render-fonts'),
   exportTimeline: (payload) => ipcRenderer.invoke('export-timeline', payload),
   probeMediaAudio: (assets) => ipcRenderer.invoke('probe-media-audio', { assets }),
+  transcribeMedia: (payload) => ipcRenderer.invoke('transcribe-media', payload),
   onRenderProgress: (callback) => {
     const handler = (_event, progress) => callback(progress);
     ipcRenderer.on('render-progress', handler);

@@ -11,7 +11,7 @@ function createWindow() {
     minWidth: 1050,
     minHeight: 720,
     backgroundColor: '#0b0b10',
-    title: 'FrameForge v1.3',
+    title: 'FrameForge v1.6',
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
@@ -148,6 +148,37 @@ ipcMain.handle('probe-media-audio', async (_event, payload = {}) => {
   }
 });
 
+ipcMain.handle('transcribe-media', async (_event, payload = {}) => {
+  let tempDir;
+  try {
+    const bytes = toBuffer(payload.bytes);
+    if (!bytes.length || bytes.length > 500 * 1024 * 1024) return { error: 'Choose a non-empty media file smaller than 500 MB.' };
+    const extension = String(path.extname(String(payload.fileName || 'media.mp4'))).toLowerCase().replace(/[^.a-z0-9]/g, '') || '.mp4';
+    const model = ['tiny', 'base', 'small'].includes(payload.model) ? payload.model : 'base';
+    const language = ['English', 'Malayalam', 'Hindi', 'Tamil'].includes(payload.language) ? payload.language : '';
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'frameforge-whisper-'));
+    const inputName = `frameforge-transcribe${extension}`;
+    fs.writeFileSync(path.join(tempDir, inputName), bytes);
+    const args = [inputName, '--model', model, '--output_format', 'srt', '--output_dir', tempDir, '--verbose', 'False'];
+    if (language) args.push('--language', language);
+    const result = await runCapture(executablePath('WHISPER_PATH', 'whisper'), args, tempDir);
+    if (result.code !== 0) {
+      const detail = `${result.stderr}\n${result.stdout}`.trim().slice(-2400);
+      return { error: detail || 'Whisper could not transcribe this media file. Check that openai-whisper and FFmpeg are installed.' };
+    }
+    const srtPath = path.join(tempDir, `${path.parse(inputName).name}.srt`);
+    if (!fs.existsSync(srtPath)) return { error: 'Whisper completed but did not produce an SRT subtitle file.' };
+    return { srt: fs.readFileSync(srtPath, 'utf8') };
+  } catch (error) {
+    const message = error && error.message ? error.message : String(error);
+    return { error: `Could not start local Whisper. Install openai-whisper and FFmpeg, then ensure the whisper command is on PATH. ${message}` };
+  } finally {
+    if (tempDir) {
+      try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch {}
+    }
+  }
+});
+
 ipcMain.handle('export-timeline', async (event, payload = {}) => {
   const files = Array.isArray(payload.files) ? payload.files : [];
   const args = Array.isArray(payload.args) ? payload.args : [];
@@ -240,6 +271,14 @@ ipcMain.handle('save-export', async (_event, payload = {}) => {
   const brightness = Math.max(-50, Math.min(50, Number(payload.brightness) || 0));
   const contrast = Math.max(50, Math.min(150, Number(payload.contrast) || 100));
   const saturation = Math.max(0, Math.min(200, Number(payload.saturation) || 100));
+  const audioFadeIn = Math.max(0, Math.min(10, Number(payload.audioFadeIn) || 0));
+  const audioFadeOut = Math.max(0, Math.min(10, Number(payload.audioFadeOut) || 0));
+  const noiseReduction = Math.max(0, Math.min(100, Number(payload.noiseReduction) || 0));
+  const eqLow = Math.max(-12, Math.min(12, Number(payload.eqLow) || 0));
+  const eqMid = Math.max(-12, Math.min(12, Number(payload.eqMid) || 0));
+  const eqHigh = Math.max(-12, Math.min(12, Number(payload.eqHigh) || 0));
+  const compressor = Math.max(0, Math.min(100, Number(payload.compressor) || 0));
+  const audioPan = Math.max(-100, Math.min(100, Number(payload.audioPan) || 0)) / 100;
   const presets = {
     none: '',
     cinematic: 'eq=contrast=1.12:saturation=0.88',
@@ -265,7 +304,24 @@ ipcMain.handle('save-export', async (_event, payload = {}) => {
 
   const eq = `eq=brightness=${brightness / 100}:contrast=${contrast / 100}:saturation=${saturation / 100}`;
   const vf = [`setpts=PTS/${speed}`, presets[payload.filter] || '', eq].filter(Boolean).join(',');
-  const af = [`atempo=${speed}`, `volume=${volume}`].join(',');
+  const audioFilters = ['aformat=sample_rates=48000:channel_layouts=stereo'];
+  if (noiseReduction > 0) audioFilters.push(`afftdn=nr=${Math.max(0.1, noiseReduction * 0.24)}:nf=-35`);
+  if (eqLow) audioFilters.push(`equalizer=f=100:t=q:w=1:g=${eqLow}`);
+  if (eqMid) audioFilters.push(`equalizer=f=1000:t=q:w=1:g=${eqMid}`);
+  if (eqHigh) audioFilters.push(`equalizer=f=8000:t=q:w=1:g=${eqHigh}`);
+  if (compressor > 0) audioFilters.push(`acompressor=threshold=-24dB:ratio=${1 + compressor * 0.05}:attack=20:release=250:makeup=1.5`);
+  audioFilters.push(`atempo=${speed}`, `volume=${volume}`);
+  if (audioPan) {
+    const leftGain = audioPan > 0 ? 1 - audioPan : 1;
+    const rightGain = audioPan < 0 ? 1 + audioPan : 1;
+    audioFilters.push(`pan=stereo|c0=${leftGain}*c0|c1=${rightGain}*c1`);
+  }
+  if (audioFadeIn > 0) audioFilters.push(`afade=t=in:st=0:d=${Math.min(duration / speed, audioFadeIn)}`);
+  if (audioFadeOut > 0) {
+    const outLength = Math.min(duration / speed, audioFadeOut);
+    audioFilters.push(`afade=t=out:st=${Math.max(0, duration / speed - outLength)}:d=${outLength}`);
+  }
+  const af = audioFilters.join(',');
   const args = ['-y', '-ss', String(start), '-i', inputPath, '-t', String(duration)];
   if (kind === 'video') args.push('-vf', vf, '-c:v', 'libx264', '-preset', 'medium', '-crf', '20');
   else args.push('-vn');
